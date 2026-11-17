@@ -1,0 +1,17 @@
+# Build C++
+rpi/build/
+rpi/build-*/
+cmake-build-*/
+
+# Fișiere primite de simulator
+data/image/*
+!data/image/.gitkeep
+
+# Configurare locală (poate conține secretul demo)
+.env
+
+# IDE / sistem
+.vscode/
+.idea/
+*.swp
+__pycache__/

@@ -1,0 +1,93 @@
+cmake_minimum_required(VERSION 3.16)
+project(rpi_doip_server LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+option(PSI_ENABLE_COVERAGE "Instrument native tests and server for LCOV" OFF)
+if(PSI_ENABLE_COVERAGE)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        message(FATAL_ERROR "Coverage requires GCC or Clang")
+    endif()
+    add_compile_options(--coverage -O0 -g)
+    add_link_options(--coverage)
+endif()
+
+find_package(OpenSSL REQUIRED COMPONENTS Crypto)
+find_package(Threads REQUIRED)
+
+add_library(psi_common STATIC common/hex_codec.cpp)
+add_library(psi_doip_config STATIC modules/doip/config/doip_config.cpp)
+add_library(psi_platform STATIC platform/linux/networking/socket.cpp)
+add_library(psi_storage STATIC platform/linux/storage/firmware_storage.cpp)
+add_library(psi_rte_storage STATIC application/rte/rte_storage.cpp)
+add_library(psi_download STATIC application/firmware-download/download_manager.cpp)
+add_library(psi_verification STATIC application/verification/verification_manager.cpp)
+add_library(psi_update STATIC application/update/update_manager.cpp)
+add_library(psi_rte_update STATIC application/rte/rte_update.cpp)
+add_library(psi_soad STATIC modules/soad/soad.cpp)
+add_library(psi_security STATIC modules/dcm/dsp/services/uds_security.cpp)
+add_library(psi_dcm STATIC
+    modules/dcm/dsl/dcm_session.cpp
+    modules/dcm/dsd/uds_dispatcher.cpp
+    modules/dcm/dsp/services/uds_download_service.cpp
+    modules/dcm/dsp/services/uds_routine_service.cpp)
+add_library(psi_pdur STATIC modules/pdur/pdu_router.cpp)
+add_library(psi_doip STATIC
+    modules/doip/protocol/doip_protocol.cpp
+    modules/doip/routing/doip_routing.cpp
+    modules/doip/connection/doip_admission.cpp
+    modules/doip/connection/doip_connection.cpp)
+add_executable(rpi_doip_server apps/diagnostic-ecu/main.cpp apps/diagnostic-ecu/doip_server.cpp)
+
+target_include_directories(psi_common PUBLIC common)
+target_include_directories(psi_doip_config PUBLIC modules/doip/config)
+target_include_directories(psi_platform PUBLIC platform/linux/networking platform/interfaces)
+target_include_directories(psi_storage PUBLIC platform/linux/storage)
+target_include_directories(psi_rte_storage PUBLIC application/rte)
+target_include_directories(psi_download PUBLIC application/firmware-download)
+target_include_directories(psi_verification PUBLIC application/verification)
+target_include_directories(psi_update PUBLIC application/update application/rte)
+target_include_directories(psi_rte_update PUBLIC application/rte)
+target_include_directories(psi_soad PUBLIC modules/soad)
+target_include_directories(psi_security PUBLIC modules/dcm/dsp/services)
+target_include_directories(psi_dcm PUBLIC modules/dcm/dsl modules/dcm/dsd)
+target_include_directories(psi_pdur PUBLIC modules/pdur)
+target_include_directories(psi_doip PUBLIC modules/doip/protocol modules/doip/routing modules/doip/connection)
+
+target_link_libraries(psi_soad PUBLIC psi_platform)
+target_link_libraries(psi_rte_storage PUBLIC psi_storage)
+target_link_libraries(psi_download PUBLIC psi_rte_storage)
+target_link_libraries(psi_verification PUBLIC psi_rte_storage OpenSSL::Crypto)
+target_link_libraries(psi_update PUBLIC psi_download psi_verification psi_rte_storage)
+target_link_libraries(psi_rte_update PUBLIC psi_update)
+target_link_libraries(psi_security PUBLIC OpenSSL::Crypto psi_common)
+target_link_libraries(psi_dcm PUBLIC psi_security psi_rte_update)
+target_link_libraries(psi_pdur PUBLIC psi_dcm psi_doip_config)
+target_link_libraries(psi_doip PUBLIC psi_soad psi_pdur psi_doip_config)
+target_link_libraries(rpi_doip_server PRIVATE psi_doip psi_soad psi_platform psi_dcm psi_storage Threads::Threads)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    foreach(component psi_common psi_doip_config psi_platform psi_storage psi_rte_storage psi_download psi_verification psi_update psi_rte_update psi_soad psi_security psi_dcm psi_pdur psi_doip rpi_doip_server)
+        target_compile_options(${component} PRIVATE -Wall -Wextra -Wpedantic)
+    endforeach()
+endif()
+
+include(CTest)
+if(BUILD_TESTING)
+    find_package(GTest REQUIRED)
+    add_executable(psi_hex_codec_test tests/unit/hex_codec_test.cpp)
+    target_link_libraries(psi_hex_codec_test PRIVATE GTest::gtest_main psi_common)
+    add_executable(psi_rte_port_test tests/unit/rte_port_test.cpp)
+    target_link_libraries(psi_rte_port_test PRIVATE GTest::gtest_main psi_dcm)
+    add_executable(psi_vertical_slice_test tests/integration/vertical_slice_test.cpp)
+    target_link_libraries(psi_vertical_slice_test PRIVATE GTest::gtest_main psi_common OpenSSL::Crypto)
+    target_compile_definitions(psi_vertical_slice_test PRIVATE
+        PSI_SERVER_PATH="$<TARGET_FILE:rpi_doip_server>")
+    add_dependencies(psi_vertical_slice_test rpi_doip_server)
+    include(GoogleTest)
+    gtest_discover_tests(psi_hex_codec_test)
+    gtest_discover_tests(psi_rte_port_test)
+    gtest_discover_tests(psi_vertical_slice_test)
+endif()

@@ -1,0 +1,25 @@
+services:
+  rpi-sim:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        RUN_TESTS: "${RUN_TESTS:-1}"
+    image: psi-rpi-sim:latest
+    container_name: rpi-sim
+    hostname: raspberrypi
+    # init: true transmite SIGTERM serverului, astfel "down" se oprește imediat.
+    init: true
+    restart: unless-stopped
+    ports:
+      # <adresă host>:<port host>:<port container>. Aplicația Windows se conectează la portul host.
+      - "${SIM_BIND_ADDRESS:-0.0.0.0}:${SIM_PORT:-13400}:13400/tcp"
+    environment:
+      # Opțiuni pentru rpi_doip_server, de ex. "--verification-min-ms 3000".
+      SIM_EXTRA_ARGS: "${SIM_EXTRA_ARGS:-}"
+      # Dacă e setat, trebuie să fie identic cu valoarea din mediul aplicației Windows (64 hex).
+      # Gol = se folosește secretul demo inclus în cod (comportamentul implicit al Pi-ului).
+      DOIP_DEMO_SECRET_HEX: "${DOIP_DEMO_SECRET_HEX:-}"
+    volumes:
+      # Fișierele primite (incoming.img / verified.img) apar în ./data/image pe host.
+      - ./data/image:/home/pi/UpdMgr/image
